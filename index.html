@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Dashboard Matrix 生成器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .file-input-label {
+            transition: all 0.2s ease-in-out;
+        }
+        .file-input-label:hover {
+            background-color: #e9e9e9;
+        }
+        .file-input-label.loaded {
+            background-color: #d1fae5;
+            border-color: #10b981;
+        }
+        table {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        th, td {
+            border: 1px solid #e5e7eb;
+            white-space: nowrap;
+            padding: 6px 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #f9fafb;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        td:first-child, th:first-child {
+            position: sticky;
+            left: 0;
+            background-color: #f9fafb;
+            z-index: 11;
+        }
+        th:first-child {
+             z-index: 12;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Master Dashboard Matrix 生成器</h1>
+            <p class="mt-2 text-md text-gray-600">请上传所需文件，自动生成用于 Rave 的矩阵。</p>
+        </header>
+
+        <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-md">
+            <!-- File Upload Section -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label for="collationFile" class="file-input-label block w-full text-center p-4 border-2 border-dashed rounded-lg cursor-pointer bg-gray-100">
+                        <span class="text-gray-600 font-semibold">1. 上传 Collation list</span>
+                        <span id="collationFileName" class="text-sm text-green-600 block mt-1"></span>
+                    </label>
+                    <input type="file" id="collationFile" class="hidden" accept=".csv">
+                </div>
+                <div>
+                    <label for="folderFile" class="file-input-label block w-full text-center p-4 border-2 border-dashed rounded-lg cursor-pointer bg-gray-100">
+                        <span class="text-gray-600 font-semibold">2. 上传 Folder and OID</span>
+                        <span id="folderFileName" class="text-sm text-green-600 block mt-1"></span>
+                    </label>
+                    <input type="file" id="folderFile" class="hidden" accept=".csv">
+                </div>
+                <div>
+                    <label for="formFile" class="file-input-label block w-full text-center p-4 border-2 border-dashed rounded-lg cursor-pointer bg-gray-100">
+                        <span class="text-gray-600 font-semibold">3. 上传 Form and OID</span>
+                        <span id="formFileName" class="text-sm text-green-600 block mt-1"></span>
+                    </label>
+                    <input type="file" id="formFile" class="hidden" accept=".csv">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <button id="generateBtn" class="w-full sm:w-auto bg-blue-600 text-white font-bold py-3 px-8 rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all">
+                    生成矩阵
+                </button>
+                <button id="downloadBtn" class="w-full sm:w-auto bg-green-600 text-white font-bold py-3 px-8 rounded-lg shadow-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all" disabled>
+                    下载 CSV
+                </button>
+            </div>
+        </div>
+
+        <!-- Status & Result Section -->
+        <div id="status" class="mt-6 text-center text-gray-600"></div>
+        <div id="resultContainer" class="mt-8 overflow-x-auto bg-white rounded-xl shadow-md"></div>
+    </div>
+
+    <script>
+        const collationFileInput = document.getElementById('collationFile');
+        const folderFileInput = document.getElementById('folderFile');
+        const formFileInput = document.getElementById('formFile');
+        const generateBtn = document.getElementById('generateBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusDiv = document.getElementById('status');
+        const resultContainer = document.getElementById('resultContainer');
+
+        let finalMatrixData = [];
+        let finalCsvContent = '';
+
+        // --- File Input Handlers ---
+        function setupFileInput(inputElement, nameElement) {
+            inputElement.addEventListener('change', () => {
+                if (inputElement.files.length > 0) {
+                    nameElement.textContent = inputElement.files[0].name;
+                    inputElement.parentElement.classList.add('loaded');
+                } else {
+                    nameElement.textContent = '';
+                    inputElement.parentElement.classList.remove('loaded');
+                }
+            });
+        }
+        setupFileInput(collationFileInput, document.getElementById('collationFileName'));
+        setupFileInput(folderFileInput, document.getElementById('folderFileName'));
+        setupFileInput(formFileInput, document.getElementById('formFileName'));
+
+        // --- CSV Parser ---
+        function parseCSV(text) {
+            const rows = text.trim().split('\n');
+            return rows.map(row => {
+                // This is a simple parser; it doesn't handle commas within quoted fields.
+                // For this specific use case, it should be sufficient.
+                return row.split(',').map(cell => cell.trim());
+            });
+        }
+
+        // --- Main Logic ---
+        generateBtn.addEventListener('click', async () => {
+            if (!collationFileInput.files[0] || !folderFileInput.files[0] || !formFileInput.files[0]) {
+                statusDiv.textContent = '错误：请确保已上传所有三个文件。';
+                statusDiv.className = 'mt-6 text-center text-red-600 font-semibold';
+                return;
+            }
+
+            statusDiv.textContent = '正在处理文件...';
+            statusDiv.className = 'mt-6 text-center text-blue-600 font-semibold';
+            resultContainer.innerHTML = '';
+            downloadBtn.disabled = true;
+
+            try {
+                const [collationText, folderText, formText] = await Promise.all([
+                    collationFileInput.files[0].text(),
+                    folderFileInput.files[0].text(),
+                    formFileInput.files[0].text()
+                ]);
+
+                // 1. Create lookup maps
+                const folderData = parseCSV(folderText);
+                const folderMap = new Map(folderData.slice(1).map(row => [row[1], row[0]])); // OID -> Name
+
+                // 2. Process Collation List
+                const collationData = parseCSV(collationText);
+                const collationHeader = collationData[0];
+                const collationRows = collationData.slice(1);
+
+                // Find column indices
+                const folderNameIndex = collationHeader.findIndex(h => h.includes('Folder Name'));
+                const folderOidIndex = collationHeader.findIndex(h => h.includes('Folder OID'));
+                const formDescIndex = collationHeader.findIndex(h => h.includes('Form Name'));
+
+                // 3. Create relationship table
+                const relationshipTable = [];
+                for (const row of collationRows) {
+                    let folderName = row[folderNameIndex] || folderMap.get(row[folderOidIndex]) || '';
+                    const folderOid = row[folderOidIndex];
+                    const formDesc = row[formDescIndex];
+                    
+                    if (!folderOid || !formDesc) continue;
+
+                    // Parse Form Name and OID
+                    const parts = formDesc.split('-');
+                    let formOid = parts.pop();
+                    let formName = parts.join('-');
+
+                    // Handle cases like "Vital Signs_1-VSG002_2"
+                    if (formOid.includes('_')) {
+                         const oidParts = formOid.split('_');
+                         if (oidParts.length > 1 && !isNaN(parseInt(oidParts[oidParts.length-1]))) {
+                             formOid = `${parts.pop()}_${oidParts.join('_')}`;
+                             formName = parts.join('-');
+                         }
+                    }
+                     // Special case for complex names without clear delimiters
+                    if (formDesc.startsWith('Study Drug Administration')) {
+                        formName = formDesc;
+                        formOid = ''; // No OID for these in the provided data
+                    } else if (!formName) { // Handle cases like "Disposition_DSG001-DSG001"
+                        formName = formOid;
+                        formOid = row[formDescIndex].split('-').pop();
+                    }
+
+
+                    relationshipTable.push({
+                        folderName: folderName,
+                        folderOid: folderOid,
+                        formName: formName,
+                        formOid: formOid
+                    });
+                }
+
+                // 4. Generate Matrix Data
+                const orderedFolderOids = [...new Set(relationshipTable.map(r => r.folderOid))];
+                const orderedFormOids = [...new Set(relationshipTable.map(r => r.formOid))];
+
+                const matrix = new Map(); // formOid -> Map(folderOid -> 'X')
+                for (const formOid of orderedFormOids) {
+                    matrix.set(formOid, new Map());
+                }
+
+                for (const rel of relationshipTable) {
+                    if (matrix.has(rel.formOid)) {
+                        matrix.get(rel.formOid).set(rel.folderOid, 'X');
+                    }
+                }
+
+                // 5. Render HTML Table
+                let tableHtml = '<table class="min-w-full text-sm">';
+                // Header
+                tableHtml += '<thead><tr>';
+                tableHtml += '<th>Matrix: MASTERDASHBOARD</th>';
+                tableHtml += '<th>Subject</th>';
+                orderedFolderOids.forEach(oid => tableHtml += `<th>${oid}</th>`);
+                tableHtml += '</tr></thead>';
+                
+                // Body
+                tableHtml += '<tbody>';
+                orderedFormOids.forEach(formOid => {
+                    tableHtml += '<tr>';
+                    tableHtml += `<td>${formOid}</td>`;
+                    tableHtml += '<td></td>'; // Empty Subject column
+                    const rowMap = matrix.get(formOid);
+                    orderedFolderOids.forEach(folderOid => {
+                        tableHtml += `<td>${rowMap.get(folderOid) || ''}</td>`;
+                    });
+                    tableHtml += '</tr>';
+                });
+                tableHtml += '</tbody></table>';
+
+                resultContainer.innerHTML = tableHtml;
+
+                // 6. Prepare CSV content for download
+                let csvRows = [];
+                const headerRow = ['"Matrix: MASTERDASHBOARD"', 'Subject', ...orderedFolderOids];
+                csvRows.push(headerRow.join(','));
+
+                orderedFormOids.forEach(formOid => {
+                    let row = [formOid, '']; // Form OID, empty Subject
+                    const rowMap = matrix.get(formOid);
+                    orderedFolderOids.forEach(folderOid => {
+                        row.push(rowMap.get(folderOid) || '');
+                    });
+                    csvRows.push(row.join(','));
+                });
+                finalCsvContent = csvRows.join('\n');
+
+                statusDiv.textContent = '成功生成矩阵！';
+                statusDiv.className = 'mt-6 text-center text-green-600 font-semibold';
+                downloadBtn.disabled = false;
+
+            } catch (error) {
+                console.error(error);
+                statusDiv.textContent = `处理失败: ${error.message}`;
+                statusDiv.className = 'mt-6 text-center text-red-600 font-semibold';
+            }
+        });
+
+        // --- Download Handler ---
+        downloadBtn.addEventListener('click', () => {
+            if (!finalCsvContent) return;
+            const blob = new Blob([finalCsvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'MasterDashboard.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+    </script>
+</body>
+</html>
